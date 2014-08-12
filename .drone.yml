@@ -1,0 +1,9 @@
+image: go1.3
+services:
+  - postgres:9.3
+script:
+  - go get -d -v ./...
+  - go build -v ./...
+  - go get bitbucket.org/liamstask/goose/cmd/goose
+  - createdb -U postgres test
+  - go test -v -cover ./...
