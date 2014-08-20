@@ -1,6 +1,6 @@
 -- +goose Up
 CREATE TABLE users (
-    id BIGSERIAL PRIMARY KEY NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
     display_name TEXT NOT NULL,
     email TEXT NOT NULL,
     password TEXT NOT NULL,

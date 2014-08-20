@@ -6,6 +6,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/opentarock/service-api/go/proto_oauth2"
 	"github.com/opentarock/service-api/go/proto_user"
 	"github.com/opentarock/service-user-management/nnservice"
 	"github.com/opentarock/service-user-management/repository"
@@ -15,7 +16,8 @@ import (
 
 func main() {
 	log.SetFlags(log.Ldate | log.Lmicroseconds)
-	repService := nnservice.NewRepService("tcp://*:6001")
+	userService := nnservice.NewRepService("tcp://*:6001")
+	oauth2Service := nnservice.NewRepService("tcp://*:6002")
 
 	db, err := sql.Open("postgres", "user=postgres dbname=users sslmode=disable")
 	if err != nil {
@@ -24,15 +26,24 @@ func main() {
 	defer db.Close()
 
 	userRepository := repository.NewUserRepositoryPostgres(db)
+	clientRepository := repository.NewClientRepositoryPostgres(db)
+	accessTokenRepository := repository.NewAccessTokenRepositoryPostgres(db)
 
 	tokenGenerator := util.NewRandTokenGenerator()
 
 	userServiceHandlers := service.NewUserServiceHandlers(userRepository)
-	repService.AddHandler(
+	userService.AddHandler(
 		proto_user.RegisterUserMessage,
 		userServiceHandlers.RegisterUserMessageHandler())
-	repService.AddHandler(
+	userService.AddHandler(
 		proto_user.AuthenticateUserMessage,
 		userServiceHandlers.AuthenticateUserMessageHandler(tokenGenerator))
-	repService.Start()
+	go userService.Start()
+
+	oauth2ServiceHandlers := service.NewOauth2ServiceHandlers(
+		userRepository, clientRepository, accessTokenRepository)
+	oauth2Service.AddHandler(
+		proto_oauth2.AccessTokenAuthenticationMessage,
+		oauth2ServiceHandlers.AccessTokenRequestHandler(tokenGenerator))
+	oauth2Service.Start()
 }

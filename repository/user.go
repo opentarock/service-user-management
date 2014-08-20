@@ -10,7 +10,7 @@ type UserRaw struct {
 }
 
 type UserRepository interface {
-	Save(user *proto_user.User) (uint64, error)
+	Save(user *proto_user.User) error
 	FindByEmail(email string) (*proto_user.User, error)
 	FindByEmailAndPassword(emailAddress, passwordPlain string) (*proto_user.User, error)
 	Count() (uint64, error)

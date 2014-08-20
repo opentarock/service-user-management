@@ -2,7 +2,6 @@ package service
 
 import (
 	"database/sql"
-	"encoding/hex"
 	"log"
 	"strings"
 	"unicode/utf8"
@@ -44,12 +43,12 @@ func (s *userServiceHandlers) RegisterUserMessageHandler() nnservice.MessageHand
 				Errors: errors,
 			}
 		} else {
-			id, err := s.userRepository.Save(registerUser.GetUser())
+			err := s.userRepository.Save(registerUser.GetUser())
 			if err != nil {
 				logutil.ErrorNormal("Error inserting user", err)
 				return nil
 			}
-			log.Printf("Registered user: id=%d", id)
+			log.Printf("Registered user: id=%d", registerUser.GetUser().GetId())
 
 			registerResponse = &proto_user.RegisterResponse{
 				Valid:       proto.Bool(true),
@@ -145,7 +144,7 @@ func (s *userServiceHandlers) AuthenticateUserMessageHandler(tokenGenerator util
 			logutil.ErrorNormal("Error retrieving user with given password", err)
 		} else if err == nil {
 			log.Printf("Authenticated user id=%d", user.GetId())
-			sessionId, err := generateSessionId(tokenGenerator)
+			sessionId, err := tokenGenerator.GenerateHex(sessionIdLength)
 			if err != nil {
 				return nil
 			}
@@ -158,14 +157,6 @@ func (s *userServiceHandlers) AuthenticateUserMessageHandler(tokenGenerator util
 		logutil.ErrorFatal("Error marshalling AuthenticateResult", err)
 		return responseData
 	})
-}
-
-func generateSessionId(tokenGenerator util.TokenGenerator) (string, error) {
-	token, err := tokenGenerator.Generate(sessionIdLength)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(token), nil
 }
 
 func strlen(str string) int {

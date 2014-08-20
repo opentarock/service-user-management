@@ -1,6 +1,9 @@
 package util
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"encoding/hex"
+)
 
 type randTokenGenerator struct{}
 
@@ -15,4 +18,12 @@ func (s *randTokenGenerator) Generate(n uint) ([]byte, error) {
 		return nil, err
 	}
 	return token, nil
+}
+
+func (s *randTokenGenerator) GenerateHex(n uint) (string, error) {
+	token, err := s.Generate(n)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(token), nil
 }

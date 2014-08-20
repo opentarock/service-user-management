@@ -22,9 +22,9 @@ func NewUserRepositoryMock() *UserRepositoryMock {
 	return &UserRepositoryMock{}
 }
 
-func (r *UserRepositoryMock) Save(user *proto_user.User) (uint64, error) {
+func (r *UserRepositoryMock) Save(user *proto_user.User) error {
 	args := r.Mock.Called(user)
-	return uint64(args.Int(0)), args.Error(1)
+	return args.Error(1)
 }
 
 func (r *UserRepositoryMock) FindByEmail(email string) (*proto_user.User, error) {
@@ -58,6 +58,11 @@ func (m *TokenGeneratorMock) Generate(n uint) ([]byte, error) {
 	args := m.Mock.Called(n)
 	token, _ := args.Get(0).([]byte)
 	return token, args.Error(1)
+}
+
+func (m *TokenGeneratorMock) GenerateHex(n uint) (string, error) {
+	args := m.Mock.Called(n)
+	return args.String(0), args.Error(1)
 }
 
 func handleMessage(t *testing.T, message proto.Message, handler nnservice.MessageHandler) []byte {
@@ -164,13 +169,13 @@ func TestTheUserIsAuthenticated(t *testing.T) {
 		Password: user.Password,
 	}
 	userRepository.On("FindByEmailAndPassword", user.GetEmail(), user.GetPassword()).Return(user, nil)
-	tokenGenerator.On("Generate", uint(64)).Return([]byte("session"), nil)
+	tokenGenerator.On("GenerateHex", uint(64)).Return("session", nil)
 
 	result := handleMessage(t, authUser, handlers.AuthenticateUserMessageHandler(tokenGenerator))
 	var authResult proto_user.AuthenticateResult
 	err := proto.Unmarshal(result, &authResult)
 	assert.Nil(t, err)
-	assert.Equal(t, "73657373696f6e", authResult.GetSid())
+	assert.Equal(t, "session", authResult.GetSid())
 }
 
 func TestTheUnknownUserIsNotAuthenticated(t *testing.T) {
