@@ -7,7 +7,7 @@ import (
 
 	"crypto/subtle"
 
-	"code.google.com/p/goprotobuf/proto"
+	"code.google.com/p/gogoprotobuf/proto"
 	"github.com/opentarock/service-api/go/proto_oauth2"
 	"github.com/opentarock/service-user-management/nnservice"
 	"github.com/opentarock/service-user-management/repository"
@@ -15,7 +15,10 @@ import (
 	"github.com/opentarock/service-user-management/util/logutil"
 )
 
-const accessTokenSize = 32
+const (
+	accessTokenSize  = 32
+	refreshTokenSize = 32
+)
 
 type oauth2ServiceHandlers struct {
 	userRepository        repository.UserRepository
@@ -84,15 +87,17 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 						return nil
 					}
 				} else {
-					token, err := tokenGenerator.GenerateHex(accessTokenSize)
-					if err != nil {
+					token, errToken := tokenGenerator.GenerateHex(accessTokenSize)
+					refreshToken, errRefreshToken := tokenGenerator.GenerateHex(refreshTokenSize)
+					if errToken != nil || errRefreshToken != nil {
 						logutil.ErrorNormal("Error generating token", err)
 						return nil
 					}
 					accessTokenResponse.Token = &proto_oauth2.AccessToken{
-						AccessToken: &token,
-						TokenType:   proto.String("Bearer"),
-						ExpiresIn:   proto.Uint64(3600),
+						AccessToken:  &token,
+						TokenType:    proto.String("Bearer"),
+						ExpiresIn:    proto.Uint64(3600),
+						RefreshToken: &refreshToken,
 					}
 					err = s.accessTokenRepository.Save(user, client, accessTokenResponse.Token)
 					if err != nil {
@@ -103,6 +108,7 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 				}
 			}
 		}
+		// response is successful only if error was not set
 		accessTokenResponse.Success = proto.Bool(accessTokenResponse.Error == nil)
 		responseData, err := proto.Marshal(accessTokenResponse)
 		logutil.ErrorFatal("Error marshalling AccessTokenResponse", err)

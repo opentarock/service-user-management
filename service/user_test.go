@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"code.google.com/p/goprotobuf/proto"
+	"code.google.com/p/gogoprotobuf/proto"
 
 	"github.com/opentarock/service-api/go/proto_user"
 	"github.com/opentarock/service-user-management/nnservice"

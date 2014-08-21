@@ -38,6 +38,6 @@ func (r *accessTokenRepositoryPostgres) Save(
 		accessToken.GetTokenType(),
 		accessToken.GetExpiresIn(),
 		expiresOn,
-		nil)
+		accessToken.RefreshToken)
 	return err
 }

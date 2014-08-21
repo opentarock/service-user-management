@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"code.google.com/p/goprotobuf/proto"
+	"code.google.com/p/gogoprotobuf/proto"
 	_ "github.com/lib/pq"
 
 	"github.com/opentarock/service-api/go/proto_oauth2"
