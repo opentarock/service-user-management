@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 
 	"code.google.com/p/gogoprotobuf/proto"
+	"github.com/arjantop/oauth2-util"
 	"github.com/opentarock/service-api/go/proto_oauth2"
 	"github.com/opentarock/service-user-management/nnservice"
 	"github.com/opentarock/service-user-management/repository"
@@ -53,9 +54,8 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 			len(client.GetSecret()) != len(accessTokenRequest.GetClient().GetSecret()) ||
 			subtle.ConstantTimeCompare([]byte(client.GetSecret()), []byte(accessTokenRequest.GetClient().GetSecret())) != 1 {
 
-			error_code := proto_oauth2.Error_invalid_client
 			accessTokenResponse.Error = &proto_oauth2.ErrorResponse{
-				Error:            &error_code,
+				Error:            proto.String(oauth2.ErrorInvalidClient),
 				ErrorDescription: proto.String("Client not found."),
 			}
 			log.Printf("Unknown client: %s", accessTokenRequest.GetClient().GetId())
@@ -63,11 +63,10 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 			logutil.ErrorNormal("Error retrieving client", err)
 			return nil
 		} else {
-			if request.GetGrantType() != proto_oauth2.GrantType_password {
-				error_code := proto_oauth2.Error_invalid_grant
+			if request.GetGrantType() != oauth2.GrantTypePassword {
 				accessTokenResponse = &proto_oauth2.AccessTokenResponse{
 					Error: &proto_oauth2.ErrorResponse{
-						Error:            &error_code,
+						Error:            proto.String(oauth2.ErrorUnsupportedGrantType),
 						ErrorDescription: proto.String(fmt.Sprintf("Unsupported grant type: %s.", request.GetGrantType())),
 					},
 				}
@@ -75,10 +74,9 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 				user, err := s.userRepository.FindByEmailAndPassword(request.GetUsername(), request.GetPassword())
 				if err != nil {
 					if err == repository.ErrCredentialsMismatch {
-						error_code := proto_oauth2.Error_invalid_request
 						accessTokenResponse = &proto_oauth2.AccessTokenResponse{
 							Error: &proto_oauth2.ErrorResponse{
-								Error:            &error_code,
+								Error:            proto.String(oauth2.ErrorInvalidRequest),
 								ErrorDescription: proto.String("Wrong owner credentials"),
 							},
 						}
