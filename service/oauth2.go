@@ -60,11 +60,12 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 			logutil.ErrorNormal("Error retrieving client", err)
 			return nil
 		} else {
+			var err error
 			switch request.GetGrantType() {
 			case oauth2.GrantTypePassword:
-				accessTokenResponse = s.handleGrantTypePassword(tokenGenerator, client, request)
+				accessTokenResponse, err = s.handleGrantTypePassword(tokenGenerator, client, request)
 			case oauth2.GrantTypeRefreshToken:
-				accessTokenResponse = s.handleGrantTypeRefreshToken(tokenGenerator, client, request)
+				accessTokenResponse, err = s.handleGrantTypeRefreshToken(tokenGenerator, client, request)
 			default:
 				accessTokenResponse = &proto_oauth2.AccessTokenResponse{
 					Error: &proto_oauth2.ErrorResponse{
@@ -73,7 +74,8 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 					},
 				}
 			}
-			if accessTokenResponse == nil {
+			if err != nil {
+				log.Println(err)
 				return nil
 			}
 		}
@@ -93,7 +95,7 @@ func clientEquals(client, clientOther *proto_oauth2.Client) bool {
 func (s *oauth2ServiceHandlers) handleGrantTypePassword(
 	tokenGenerator util.TokenGenerator,
 	client *proto_oauth2.Client,
-	request *proto_oauth2.AccessTokenRequest) *proto_oauth2.AccessTokenResponse {
+	request *proto_oauth2.AccessTokenRequest) (*proto_oauth2.AccessTokenResponse, error) {
 
 	accessTokenResponse := &proto_oauth2.AccessTokenResponse{}
 
@@ -107,30 +109,27 @@ func (s *oauth2ServiceHandlers) handleGrantTypePassword(
 				},
 			}
 		} else {
-			logutil.ErrorNormal("Error retrieving user", err)
-			return nil
+			return nil, fmt.Errorf("Error retrieving user: %s", err)
 		}
 	} else {
 		token, err := generateToken(tokenGenerator)
 		if err != nil {
-			logutil.ErrorNormal("Error generating new token", err)
-			return nil
+			return nil, fmt.Errorf("Error generating new token: %s", err)
 		}
 		accessTokenResponse.Token = token
 		err = s.accessTokenRepository.Save(user, client, accessTokenResponse.Token, nil)
 		if err != nil {
-			logutil.ErrorNormal("Error persisting token", err)
-			return nil
+			return nil, fmt.Errorf("Error persisting token: %s", err)
 		}
 		log.Printf("Authenticated client: %s", client.GetId())
 	}
-	return accessTokenResponse
+	return accessTokenResponse, nil
 }
 
 func (s *oauth2ServiceHandlers) handleGrantTypeRefreshToken(
 	tokenGenerator util.TokenGenerator,
 	client *proto_oauth2.Client,
-	request *proto_oauth2.AccessTokenRequest) *proto_oauth2.AccessTokenResponse {
+	request *proto_oauth2.AccessTokenRequest) (*proto_oauth2.AccessTokenResponse, error) {
 
 	accessTokenResponse := &proto_oauth2.AccessTokenResponse{}
 
@@ -139,7 +138,7 @@ func (s *oauth2ServiceHandlers) handleGrantTypeRefreshToken(
 			Error:            proto.String(oauth2.ErrorInvalidRequest),
 			ErrorDescription: proto.String(fmt.Sprintf("Required paremeter is missing: %s", oauth2.ParameterRefreshToken)),
 		}
-		return accessTokenResponse
+		return accessTokenResponse, nil
 	}
 
 	currentToken, err := s.accessTokenRepository.FindByRefreshToken(client, request.GetRefreshToken())
@@ -149,31 +148,27 @@ func (s *oauth2ServiceHandlers) handleGrantTypeRefreshToken(
 			ErrorDescription: proto.String("Invalid refresh token"),
 		}
 		log.Printf("Refresh token %s not found", request.GetRefreshToken())
-		return accessTokenResponse
+		return accessTokenResponse, nil
 	} else if err != nil {
-		logutil.ErrorNormal("Error retrieving token", nil)
-		return nil
+		return nil, fmt.Errorf("Error retrieving token: %s", err)
 	}
 
 	newToken, err := generateToken(tokenGenerator)
 	if err != nil {
-		logutil.ErrorNormal("Error generating refreshed token", err)
-		return nil
+		return nil, fmt.Errorf("Error generating refreshed token: %s", err)
 	}
 	user, err := s.accessTokenRepository.FindUserForToken(currentToken)
 	if err != nil {
-		logutil.ErrorNormal("Error retrieving user", err)
-		return nil
+		return nil, fmt.Errorf("Error retrieving user: %s", err)
 	}
 	err = s.accessTokenRepository.Save(user, client, newToken, currentToken)
 	if err != nil {
-		logutil.ErrorNormal("Error persisting token", err)
-		return nil
+		return nil, fmt.Errorf("Error persisting token", err)
 	}
 
 	accessTokenResponse.Token = newToken
 
-	return accessTokenResponse
+	return accessTokenResponse, nil
 }
 
 func generateToken(tokenGenerator util.TokenGenerator) (*proto_oauth2.AccessToken, error) {
