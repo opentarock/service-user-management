@@ -50,10 +50,7 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 		accessTokenResponse := &proto_oauth2.AccessTokenResponse{}
 		request := accessTokenRequest.GetRequest()
 		client, err := s.clientRepository.FindById(accessTokenRequest.GetClient().GetId())
-		if err == sql.ErrNoRows ||
-			len(client.GetSecret()) != len(accessTokenRequest.GetClient().GetSecret()) ||
-			subtle.ConstantTimeCompare([]byte(client.GetSecret()), []byte(accessTokenRequest.GetClient().GetSecret())) != 1 {
-
+		if err == sql.ErrNoRows || !clientEquals(client, accessTokenRequest.GetClient()) {
 			accessTokenResponse.Error = &proto_oauth2.ErrorResponse{
 				Error:            proto.String(oauth2.ErrorInvalidClient),
 				ErrorDescription: proto.String("Client not found."),
@@ -63,47 +60,21 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 			logutil.ErrorNormal("Error retrieving client", err)
 			return nil
 		} else {
-			if request.GetGrantType() != oauth2.GrantTypePassword {
+			switch request.GetGrantType() {
+			case oauth2.GrantTypePassword:
+				accessTokenResponse = s.handleGrantTypePassword(tokenGenerator, client, request)
+			case oauth2.GrantTypeRefreshToken:
+				accessTokenResponse = s.handleGrantTypeRefreshToken(tokenGenerator, client, request)
+			default:
 				accessTokenResponse = &proto_oauth2.AccessTokenResponse{
 					Error: &proto_oauth2.ErrorResponse{
 						Error:            proto.String(oauth2.ErrorUnsupportedGrantType),
 						ErrorDescription: proto.String(fmt.Sprintf("Unsupported grant type: %s.", request.GetGrantType())),
 					},
 				}
-			} else {
-				user, err := s.userRepository.FindByEmailAndPassword(request.GetUsername(), request.GetPassword())
-				if err != nil {
-					if err == repository.ErrCredentialsMismatch {
-						accessTokenResponse = &proto_oauth2.AccessTokenResponse{
-							Error: &proto_oauth2.ErrorResponse{
-								Error:            proto.String(oauth2.ErrorInvalidRequest),
-								ErrorDescription: proto.String("Wrong owner credentials"),
-							},
-						}
-					} else {
-						logutil.ErrorNormal("Error retrieving user", err)
-						return nil
-					}
-				} else {
-					token, errToken := tokenGenerator.GenerateHex(accessTokenSize)
-					refreshToken, errRefreshToken := tokenGenerator.GenerateHex(refreshTokenSize)
-					if errToken != nil || errRefreshToken != nil {
-						logutil.ErrorNormal("Error generating token", err)
-						return nil
-					}
-					accessTokenResponse.Token = &proto_oauth2.AccessToken{
-						AccessToken:  &token,
-						TokenType:    proto.String("Bearer"),
-						ExpiresIn:    proto.Uint64(3600),
-						RefreshToken: &refreshToken,
-					}
-					err = s.accessTokenRepository.Save(user, client, accessTokenResponse.Token)
-					if err != nil {
-						logutil.ErrorNormal("Error persisting token", err)
-						return nil
-					}
-					log.Printf("Authenticated client: %s", client.GetId())
-				}
+			}
+			if accessTokenResponse == nil {
+				return nil
 			}
 		}
 		// response is successful only if error was not set
@@ -112,4 +83,112 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 		logutil.ErrorFatal("Error marshalling AccessTokenResponse", err)
 		return responseData
 	})
+}
+
+func clientEquals(client, clientOther *proto_oauth2.Client) bool {
+	return len(client.GetSecret()) == len(clientOther.GetSecret()) &&
+		subtle.ConstantTimeCompare([]byte(client.GetSecret()), []byte(clientOther.GetSecret())) == 1
+}
+
+func (s *oauth2ServiceHandlers) handleGrantTypePassword(
+	tokenGenerator util.TokenGenerator,
+	client *proto_oauth2.Client,
+	request *proto_oauth2.AccessTokenRequest) *proto_oauth2.AccessTokenResponse {
+
+	accessTokenResponse := &proto_oauth2.AccessTokenResponse{}
+
+	user, err := s.userRepository.FindByEmailAndPassword(request.GetUsername(), request.GetPassword())
+	if err != nil {
+		if err == repository.ErrCredentialsMismatch {
+			accessTokenResponse = &proto_oauth2.AccessTokenResponse{
+				Error: &proto_oauth2.ErrorResponse{
+					Error:            proto.String(oauth2.ErrorInvalidGrant),
+					ErrorDescription: proto.String("Wrong owner credentials"),
+				},
+			}
+		} else {
+			logutil.ErrorNormal("Error retrieving user", err)
+			return nil
+		}
+	} else {
+		token, err := generateToken(tokenGenerator)
+		if err != nil {
+			logutil.ErrorNormal("Error generating new token", err)
+			return nil
+		}
+		accessTokenResponse.Token = token
+		err = s.accessTokenRepository.Save(user, client, accessTokenResponse.Token, nil)
+		if err != nil {
+			logutil.ErrorNormal("Error persisting token", err)
+			return nil
+		}
+		log.Printf("Authenticated client: %s", client.GetId())
+	}
+	return accessTokenResponse
+}
+
+func (s *oauth2ServiceHandlers) handleGrantTypeRefreshToken(
+	tokenGenerator util.TokenGenerator,
+	client *proto_oauth2.Client,
+	request *proto_oauth2.AccessTokenRequest) *proto_oauth2.AccessTokenResponse {
+
+	accessTokenResponse := &proto_oauth2.AccessTokenResponse{}
+
+	if request.GetRefreshToken() == "" {
+		accessTokenResponse.Error = &proto_oauth2.ErrorResponse{
+			Error:            proto.String(oauth2.ErrorInvalidRequest),
+			ErrorDescription: proto.String(fmt.Sprintf("Required paremeter is missing: %s", oauth2.ParameterRefreshToken)),
+		}
+		return accessTokenResponse
+	}
+
+	currentToken, err := s.accessTokenRepository.FindByRefreshToken(client, request.GetRefreshToken())
+	if err == sql.ErrNoRows {
+		accessTokenResponse.Error = &proto_oauth2.ErrorResponse{
+			Error:            proto.String(oauth2.ErrorInvalidGrant),
+			ErrorDescription: proto.String("Invalid refresh token"),
+		}
+		log.Printf("Refresh token %s not found", request.GetRefreshToken())
+		return accessTokenResponse
+	} else if err != nil {
+		logutil.ErrorNormal("Error retrieving token", nil)
+		return nil
+	}
+
+	newToken, err := generateToken(tokenGenerator)
+	if err != nil {
+		logutil.ErrorNormal("Error generating refreshed token", err)
+		return nil
+	}
+	user, err := s.accessTokenRepository.FindUserForToken(currentToken)
+	if err != nil {
+		logutil.ErrorNormal("Error retrieving user", err)
+		return nil
+	}
+	err = s.accessTokenRepository.Save(user, client, newToken, currentToken)
+	if err != nil {
+		logutil.ErrorNormal("Error persisting token", err)
+		return nil
+	}
+
+	accessTokenResponse.Token = newToken
+
+	return accessTokenResponse
+}
+
+func generateToken(tokenGenerator util.TokenGenerator) (*proto_oauth2.AccessToken, error) {
+	token, err := tokenGenerator.GenerateHex(accessTokenSize)
+	if err != nil {
+		return nil, err
+	}
+	refreshToken, err := tokenGenerator.GenerateHex(refreshTokenSize)
+	if err != nil {
+		return nil, err
+	}
+	return &proto_oauth2.AccessToken{
+		AccessToken:  &token,
+		TokenType:    proto.String("Bearer"),
+		ExpiresIn:    proto.Uint64(12 * 3600), // expires in 12 hours
+		RefreshToken: &refreshToken,
+	}, nil
 }

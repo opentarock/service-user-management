@@ -66,6 +66,16 @@ func NewClient() *proto_oauth2.Client {
 	}
 }
 
+func NewAccessToken() *proto_oauth2.AccessToken {
+	return &proto_oauth2.AccessToken{
+		AccessToken:  proto.String("token"),
+		TokenType:    proto.String("type"),
+		ExpiresIn:    proto.Uint64(3600),
+		RefreshToken: proto.String("refresh"),
+	}
+
+}
+
 func (s *PostgresRepositoryTestSuite) TestUserIsSaved() {
 	user := NewUser()
 	countBefore, err := s.userRepository.Count()
@@ -112,14 +122,28 @@ func (s *PostgresRepositoryTestSuite) TestAccessTokenIsSaved() {
 	s.userRepository.Save(user)
 	client := NewClient()
 	s.clientRepository.Save(user, client)
-	accessToken := &proto_oauth2.AccessToken{
-		AccessToken: proto.String("token"),
-		TokenType:   proto.String("type"),
-		ExpiresIn:   proto.Uint64(3600),
-	}
-	err := s.accessTokenRepository.Save(user, client, accessToken)
+	accessToken := NewAccessToken()
+	err := s.accessTokenRepository.Save(user, client, accessToken, nil)
 	assert.Nil(s.T(), err)
-	// TODO: Check that token is actually persisted
+	accessTokenRetrieved, err := s.accessTokenRepository.FindByRefreshToken(client, accessToken.GetRefreshToken())
+	assert.Nil(s.T(), err)
+	assert.Equal(s.T(), accessToken, accessTokenRetrieved)
+}
+
+func (s *PostgresRepositoryTestSuite) TestCanRetrieveUserForAccessToken() {
+	user := NewUser()
+	s.userRepository.Save(user)
+	client := NewClient()
+	s.clientRepository.Save(user, client)
+	accessToken := NewAccessToken()
+	err := s.accessTokenRepository.Save(user, client, accessToken, nil)
+	assert.Nil(s.T(), err)
+	retrievedUser, err := s.accessTokenRepository.FindUserForToken(accessToken)
+	assert.Nil(s.T(), err)
+	assert.Equal(s.T(), user.GetId(), retrievedUser.GetId())
+	assert.Equal(s.T(), user.GetEmail(), retrievedUser.GetEmail())
+	assert.Equal(s.T(), user.GetDisplayName(), retrievedUser.GetDisplayName())
+	assert.NotEmpty(s.T(), user.GetPassword())
 }
 
 func TestPostgresRepositoryTestSuite(t *testing.T) {

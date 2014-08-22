@@ -27,6 +27,12 @@ func (r *UserRepositoryMock) Save(user *proto_user.User) error {
 	return args.Error(1)
 }
 
+func (r *UserRepositoryMock) FindById(id uint64) (*proto_user.User, error) {
+	args := r.Mock.Called(id)
+	user, _ := args.Get(0).(*proto_user.User)
+	return user, args.Error(1)
+}
+
 func (r *UserRepositoryMock) FindByEmail(email string) (*proto_user.User, error) {
 	args := r.Mock.Called(email)
 	user, _ := args.Get(0).(*proto_user.User)

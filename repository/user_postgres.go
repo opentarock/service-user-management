@@ -36,6 +36,10 @@ func NewUserRepositoryPostgres(db *sql.DB) *userRepositoryPostgres {
 		`INSERT INTO users (display_name, email, password, salt)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING id`)
+	util.Prepare(db, repo.statements, "find_user_by_id",
+		`SELECT id, display_name, email, password, salt
+		 FROM users
+		 WHERE id = $1`)
 	util.Prepare(db, repo.statements, "find_user_by_email",
 		`SELECT id, display_name, email, password, salt
 		 FROM users
@@ -64,18 +68,26 @@ func (r *userRepositoryPostgres) Save(user *proto_user.User) error {
 	return nil
 }
 
-func (r *userRepositoryPostgres) FindByEmail(emailAddress string) (*proto_user.User, error) {
-	userRaw, err := r.findByEmailRaw(emailAddress)
+func (r *userRepositoryPostgres) FindById(id uint64) (*proto_user.User, error) {
+	userRaw, err := r.findRaw("find_user_by_id", id)
 	if err != nil {
 		return nil, err
 	}
 	return userRaw.User, nil
 }
 
-func (r *userRepositoryPostgres) findByEmailRaw(emailAddress string) (*UserRaw, error) {
+func (r *userRepositoryPostgres) FindByEmail(emailAddress string) (*proto_user.User, error) {
+	userRaw, err := r.findRaw("find_user_by_email", emailAddress)
+	if err != nil {
+		return nil, err
+	}
+	return userRaw.User, nil
+}
+
+func (r *userRepositoryPostgres) findRaw(query string, args ...interface{}) (*UserRaw, error) {
 	var id uint64
 	var displayName, email, password, salt string
-	err := util.QueryRow(r.statements, "find_user_by_email", emailAddress).Scan(
+	err := util.QueryRow(r.statements, "find_user_by_email", args...).Scan(
 		&id, &displayName, &email, &password, &salt)
 	if err != nil {
 		return nil, err
@@ -94,7 +106,7 @@ func (r *userRepositoryPostgres) findByEmailRaw(emailAddress string) (*UserRaw, 
 }
 
 func (r *userRepositoryPostgres) FindByEmailAndPassword(emailAddress, passwordPlain string) (*proto_user.User, error) {
-	userRaw, err := r.findByEmailRaw(emailAddress)
+	userRaw, err := r.findRaw("find_user_by_email", emailAddress)
 	if err == sql.ErrNoRows {
 		return nil, ErrCredentialsMismatch
 	} else if err != nil {
