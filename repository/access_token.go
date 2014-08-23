@@ -12,6 +12,9 @@ type AccessTokenRepository interface {
 		accessToken *proto_oauth2.AccessToken,
 		parentToken *proto_oauth2.AccessToken) error
 
+	DeleteParents(accessToken *AccessTokenRaw) error
+
+	FindByTokenRaw(accessTokenRaw string) (*AccessTokenRaw, error)
 	FindUserForToken(accessToken *proto_oauth2.AccessToken) (*proto_user.User, error)
 	FindByRefreshToken(client *proto_oauth2.Client, refreshToken string) (*proto_oauth2.AccessToken, error)
 }

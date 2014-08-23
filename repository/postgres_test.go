@@ -125,9 +125,67 @@ func (s *PostgresRepositoryTestSuite) TestAccessTokenIsSaved() {
 	accessToken := NewAccessToken()
 	err := s.accessTokenRepository.Save(user, client, accessToken, nil)
 	assert.Nil(s.T(), err)
+	accessTokenRetrieved, err := s.accessTokenRepository.FindByTokenRaw(accessToken.GetAccessToken())
+	assert.Nil(s.T(), err)
+	assert.Equal(s.T(), accessToken, accessTokenRetrieved.Token)
+}
+
+func (s *PostgresRepositoryTestSuite) TestCanRetrieveByRefreshToken() {
+	user := NewUser()
+	s.userRepository.Save(user)
+	client := NewClient()
+	s.clientRepository.Save(user, client)
+	accessToken := NewAccessToken()
+	err := s.accessTokenRepository.Save(user, client, accessToken, nil)
+	assert.Nil(s.T(), err)
 	accessTokenRetrieved, err := s.accessTokenRepository.FindByRefreshToken(client, accessToken.GetRefreshToken())
 	assert.Nil(s.T(), err)
 	assert.Equal(s.T(), accessToken, accessTokenRetrieved)
+}
+
+func (s *PostgresRepositoryTestSuite) TestParentTokensAreDeleted() {
+	user := NewUser()
+	s.userRepository.Save(user)
+	client := NewClient()
+	s.clientRepository.Save(user, client)
+
+	token1 := NewAccessToken()
+	token1.AccessToken = proto.String("token1")
+	err := s.accessTokenRepository.Save(user, client, token1, nil)
+	assert.Nil(s.T(), err)
+
+	token2 := NewAccessToken()
+	token2.AccessToken = proto.String("token2")
+	err = s.accessTokenRepository.Save(user, client, token2, token1)
+	assert.Nil(s.T(), err)
+
+	token3 := NewAccessToken()
+	token3.AccessToken = proto.String("token3")
+	err = s.accessTokenRepository.Save(user, client, token3, token1)
+	assert.Nil(s.T(), err)
+
+	token4 := NewAccessToken()
+	token4.AccessToken = proto.String("token4")
+	err = s.accessTokenRepository.Save(user, client, token4, token2)
+	assert.Nil(s.T(), err)
+
+	accessTokenRetrieved, err := s.accessTokenRepository.FindByTokenRaw(token4.GetAccessToken())
+	assert.Nil(s.T(), err)
+	err = s.accessTokenRepository.DeleteParents(accessTokenRetrieved)
+	assert.Nil(s.T(), err)
+	assert.Nil(s.T(), accessTokenRetrieved.ParentToken)
+
+	accessTokenRetrieved2, err := s.accessTokenRepository.FindByTokenRaw(token4.GetAccessToken())
+	assert.Nil(s.T(), err)
+	assert.Equal(s.T(), accessTokenRetrieved, accessTokenRetrieved2)
+	assert.Equal(s.T(), 1, countRows(s.T(), s.db, "access_tokens"))
+}
+
+func countRows(t *testing.T, db *sql.DB, table string) uint {
+	var numRows uint
+	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&numRows)
+	assert.Nil(t, err)
+	return numRows
 }
 
 func (s *PostgresRepositoryTestSuite) TestCanRetrieveUserForAccessToken() {

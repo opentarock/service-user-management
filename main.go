@@ -45,5 +45,8 @@ func main() {
 	oauth2Service.AddHandler(
 		proto_oauth2.AccessTokenAuthenticationMessage,
 		oauth2ServiceHandlers.AccessTokenRequestHandler(tokenGenerator))
+	oauth2Service.AddHandler(
+		proto_oauth2.ValidateMessage,
+		oauth2ServiceHandlers.ValidateHandler())
 	oauth2Service.Start()
 }

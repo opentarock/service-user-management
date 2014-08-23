@@ -187,3 +187,52 @@ func generateToken(tokenGenerator util.TokenGenerator) (*proto_oauth2.AccessToke
 		RefreshToken: &refreshToken,
 	}, nil
 }
+
+func (s *oauth2ServiceHandlers) ValidateHandler() nnservice.MessageHandler {
+	return nnservice.MessageHandlerFunc(func(data []byte) []byte {
+		validateRequest := &proto_oauth2.ValidateTokenRequest{}
+		err := proto.Unmarshal(data, validateRequest)
+		if err != nil {
+			logutil.ErrorNormal("Error unmarshalling ValidateRequest", err)
+			return nil
+		}
+
+		validateResponse, err := s.validateToken(validateRequest)
+		if err != nil {
+			log.Println(err)
+			return []byte{}
+		}
+		responseData, err := proto.Marshal(validateResponse)
+		logutil.ErrorFatal("Error marshalling ResponseData", err)
+		return responseData
+	})
+}
+
+func (s *oauth2ServiceHandlers) validateToken(
+	validateRequest *proto_oauth2.ValidateTokenRequest) (*proto_oauth2.ValidateTokenResponse, error) {
+
+	// TODO: Implement scope functionality.
+	validateResponse := &proto_oauth2.ValidateTokenResponse{}
+	validateResponse.Scope = validateRequest.Scope
+
+	accessToken, err := s.accessTokenRepository.FindByTokenRaw(validateRequest.GetAccessToken())
+
+	if err == sql.ErrNoRows {
+		log.Printf("Token not found or expired")
+		validateResponse.Valid = proto.Bool(false)
+		return validateResponse, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("Invalid access token: %s", err)
+	}
+	if accessToken.ParentToken != nil {
+		err := s.accessTokenRepository.DeleteParents(accessToken)
+		if err != nil {
+			return nil, fmt.Errorf("Error deleting token parents: %s", err)
+		}
+	}
+
+	log.Printf("Success validating token of type %s", accessToken.Token.GetTokenType())
+
+	validateResponse.Valid = proto.Bool(true)
+	return validateResponse, nil
+}
