@@ -48,37 +48,44 @@ func (s *oauth2ServiceHandlers) AccessTokenRequestHandler(tokenGenerator util.To
 			return nil
 		}
 		accessTokenResponse := &proto_oauth2.AccessTokenResponse{}
-		request := accessTokenRequest.GetRequest()
-		client, err := s.clientRepository.FindById(accessTokenRequest.GetClient().GetId())
-		if err == sql.ErrNoRows || !clientEquals(client, accessTokenRequest.GetClient()) {
-			accessTokenResponse.Error = &proto_oauth2.ErrorResponse{
-				Error:            proto.String(oauth2.ErrorInvalidClient),
-				ErrorDescription: proto.String("Client not found."),
-			}
-			log.Printf("Unknown client: %s", accessTokenRequest.GetClient().GetId())
-		} else if err != nil {
-			logutil.ErrorNormal("Error retrieving client", err)
-			return nil
+
+		if accessTokenRequest.Client == nil {
+			accessTokenResponse.Error = proto_oauth2.NewInvalidClientError("Missing client authentication.")
+			log.Println(accessTokenResponse.Error.GetErrorDescription())
+		} else if accessTokenRequest.GetClient().GetId() == "" {
+			accessTokenResponse.Error = proto_oauth2.NewInvalidClientError("Empty client id.")
+			log.Println(accessTokenResponse.Error.GetErrorDescription())
 		} else {
-			var err error
-			switch request.GetGrantType() {
-			case oauth2.GrantTypePassword:
-				accessTokenResponse, err = s.handleGrantTypePassword(tokenGenerator, client, request)
-			case oauth2.GrantTypeRefreshToken:
-				accessTokenResponse, err = s.handleGrantTypeRefreshToken(tokenGenerator, client, request)
-			default:
-				accessTokenResponse = &proto_oauth2.AccessTokenResponse{
-					Error: &proto_oauth2.ErrorResponse{
-						Error:            proto.String(oauth2.ErrorUnsupportedGrantType),
-						ErrorDescription: proto.String(fmt.Sprintf("Unsupported grant type: %s.", request.GetGrantType())),
-					},
+			request := accessTokenRequest.GetRequest()
+			client, err := s.clientRepository.FindById(accessTokenRequest.GetClient().GetId())
+			if err == sql.ErrNoRows || !clientEquals(client, accessTokenRequest.GetClient()) {
+				accessTokenResponse.Error = proto_oauth2.NewInvalidClientError("Client not found.")
+				log.Printf("Unknown client: %s", accessTokenRequest.GetClient().GetId())
+			} else if err != nil {
+				logutil.ErrorNormal("Error retrieving client", err)
+				return nil
+			} else {
+				var err error
+				switch request.GetGrantType() {
+				case oauth2.GrantTypePassword:
+					accessTokenResponse, err = s.handleGrantTypePassword(tokenGenerator, client, request)
+				case oauth2.GrantTypeRefreshToken:
+					accessTokenResponse, err = s.handleGrantTypeRefreshToken(tokenGenerator, client, request)
+				default:
+					accessTokenResponse = &proto_oauth2.AccessTokenResponse{
+						Error: &proto_oauth2.ErrorResponse{
+							Error:            proto.String(oauth2.ErrorUnsupportedGrantType),
+							ErrorDescription: proto.String(fmt.Sprintf("Unsupported grant type: %s.", request.GetGrantType())),
+						},
+					}
+				}
+				if err != nil {
+					log.Println(err)
+					return nil
 				}
 			}
-			if err != nil {
-				log.Println(err)
-				return nil
-			}
 		}
+
 		// response is successful only if error was not set
 		accessTokenResponse.Success = proto.Bool(accessTokenResponse.Error == nil)
 		responseData, err := proto.Marshal(accessTokenResponse)
